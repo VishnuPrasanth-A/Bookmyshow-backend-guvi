@@ -7,7 +7,7 @@ const URL = process.env.DB;
 
 const DB_NAME = "movie_db";
 
-const COLLECTION_NAME = "movie";
+const COLLECTION_NAME = "movies";
 app.use(
   cors({
     origin: "*",
