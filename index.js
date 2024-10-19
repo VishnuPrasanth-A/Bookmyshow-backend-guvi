@@ -1,34 +1,37 @@
 const express = require("express");
+const app = express();
 const cors = require("cors");
 const { MongoClient, ObjectId } = require("mongodb");
 const dotenv = require("dotenv").config();
-const path = require("path");
-
-const app = express();
 const URL = process.env.DB;
 
 const DB_NAME = "movie_db";
-const COLLECTION_NAME = "movie";
 
-app.use(cors({ origin: "*" }));
+const COLLECTION_NAME = "movie";
+app.use(
+  cors({
+    origin: "*",
+  })
+);
 app.use(express.json());
 
-// Step 1: Serve static files from the "public" folder
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Step 2: Add a route for the root ("/") to serve the index.html
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// Step 3: Your existing API routes
 app.get("/movie/get-movies", async (req, res) => {
   try {
+    // Step 1. Connect the Database
     const client = new MongoClient(URL, {}).connect();
+
+    // Step 2. Select the DB
     let db = (await client).db(DB_NAME);
+
+    // Step 3. Select the Collection
     let collection = await db.collection(COLLECTION_NAME);
+
+    // Step 4. Do the operation
     let movies = await collection.find({}).toArray();
+
+    // Step 5. Close the connection
     (await client).close();
+
     res.json(movies);
   } catch (error) {
     console.log(error);
@@ -39,11 +42,20 @@ app.get("/movie/get-movies", async (req, res) => {
 app.get("/movie/:id", async (req, res) => {
   try {
     const id = req.params.id;
+
+    // Step 1. Connect the Database
     const client = new MongoClient(URL, {}).connect();
+
+    // Step 2. Select the DB
     let db = (await client).db(DB_NAME);
-    let collection = await db.collection(COLLECTION_NAME);
-    let movie = await collection.findOne({ _id: new ObjectId(id) });
+
+    // Step 3. Select the Collection
+    let dbcollection = await db.collection(COLLECTION_NAME);
+
+    let movie = await dbcollection.findOne({ _id: new ObjectId(id) });
+
     (await client).close();
+
     res.json(movie);
   } catch (error) {
     console.log(error);
@@ -53,6 +65,7 @@ app.get("/movie/:id", async (req, res) => {
 
 app.post("/movie/book-movie", async (req, res) => {
   let bookingRequest = req.body;
+
   if (
     !bookingRequest.movieId ||
     !bookingRequest.showId ||
@@ -63,47 +76,86 @@ app.post("/movie/book-movie", async (req, res) => {
   ) {
     return res.status(401).json({ message: "Some fields are missing" });
   }
-  
   let requestedSeat = parseInt(bookingRequest.seats);
+
+  // NaN -> Not a Number
   if (isNaN(requestedSeat) || requestedSeat <= 0) {
-    return res.status(401).json({ message: "Invalid seat count" });
+    return res.status(401).json({ message: "In valid seat count" });
   }
 
   try {
+    // Step 1. Connect the Database
     const client = new MongoClient(URL, {}).connect();
-    let db = (await client).db(DB_NAME);
-    let collection = await db.collection(COLLECTION_NAME);
 
-    let movie = await collection.findOne({ _id: new ObjectId(bookingRequest.movieId) });
+    // Step 2. Select the DB
+    let db = (await client).db(DB_NAME);
+
+    // Step 3. Select the Collection
+    let dbcollection = await db.collection(COLLECTION_NAME);
+
+    /**
+     * Find the movie
+     * if movie is not found throw error else
+     * check if the seats are avilable
+     * Find the show and get the seat
+     * If the avilable seat is less than requested seat a:10 r:11
+     * Throw error
+     * Else book the seat
+     */
+    console.log(bookingRequest.movieId);
+    let movie = await dbcollection.findOne({
+      _id: new ObjectId(bookingRequest.movieId),
+    });
+
     if (!movie) {
       return res.status(404).json({ message: "Requested movie is not found" });
     }
 
-    const show = Object.values(movie.shows).flat().find(s => s.id === bookingRequest.showId);
+    const show = Object.values(movie.shows)
+      .flat()
+      .find((s) => s.id === bookingRequest.showId);
+
     if (!show) {
-      return res.status(404).json({ message: "Show not found" });
+      return res.status(404).json({ message: "Show not Found" });
     }
 
     if (parseInt(show.seats) < requestedSeat) {
-      return res.status(404).json({ message: "Not enough seats available" });
+      return res.status(404).json({ message: "No enough seats avilable" });
     }
 
     const updateSeats = parseInt(show.seats) - requestedSeat;
-    const date = Object.keys(movie.shows).find(d => movie.shows[d].some(s => s.id === bookingRequest.showId));
-    const showIndex = movie.shows[date].findIndex(s => s.id === bookingRequest.showId);
+
+    // let dates = Object.keys(movie.shows);
+    // let movieShow = dates.find(d => movie.shows[d].some((s) => s.id === requestedSeat.showId))
+    // console.log(movieShow)
+
+    const date = Object.keys(movie.shows).find((d) =>
+      movie.shows[d].some((s) => s.id === bookingRequest.showId)
+    );
+    console.log(movie.shows[date]);
+    const showIndex = movie.shows[date].findIndex(
+      (s) => s.id === bookingRequest.showId
+    );
+    console.log(showIndex);
 
     const userBooking = {
       name: bookingRequest.name,
       email: bookingRequest.email,
       phoneNumber: bookingRequest.phoneNumber,
-      seats: bookingRequest.seats
+      seats: bookingRequest.seats,
     };
 
-    const updatedResult = await collection.updateOne(
-      { _id: new ObjectId(bookingRequest.movieId) },
+    const updatedResult = await dbcollection.updateOne(
       {
-        $set: { [`shows.${date}.${showIndex}.seats`]: updateSeats },
-        $push: { [`shows.${date}.${showIndex}.bookings`]: userBooking }
+        _id: new ObjectId(bookingRequest.movieId),
+      },
+      {
+        $set: {
+          [`shows.${date}.${showIndex}.seats`]: updateSeats,
+        },
+        $push: {
+          [`shows.${date}.${showIndex}.bookings`]: userBooking,
+        },
       }
     );
 
@@ -116,9 +168,10 @@ app.post("/movie/book-movie", async (req, res) => {
     console.log(error);
     return res.status(500).json({ message: "Something went wrong" });
   }
+
+  // "2" == 2 -> true -> 2 --- 2
+  // "2" === 2 -> false -> left:string  ---  right:number
+  // "2" < 0 ->
 });
 
-// Start the server
-app.listen(8000, () => {
-  console.log("Server is running on http://localhost:8000");
-});
+app.listen(8000);
